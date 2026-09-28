@@ -63,8 +63,8 @@ installed cameras.
 The two weight files use Git LFS. Use the GitHub **media** configuration URL so
 Scrypted receives the binary object rather than an LFS pointer:
 
-- CoreML: `https://media.githubusercontent.com/media/tman9590/scrypted-speciesnet-classifier/main/models/coreml/config.json`
-- OpenVINO: `https://media.githubusercontent.com/media/tman9590/scrypted-speciesnet-classifier/main/models/openvino/config.json`
+- CoreML: `https://media.githubusercontent.com/media/tman9590/scrypted-speciesnet-classifier/ec8e1600448afcbf9c00330e69842868f603d256/models/coreml/config.json`
+- OpenVINO: `https://media.githubusercontent.com/media/tman9590/scrypted-speciesnet-classifier/ec8e1600448afcbf9c00330e69842868f603d256/models/openvino/config.json`
 
 In the matching Scrypted detector plugin, choose **Create Device** under
 **Models**, name it `SpeciesNet Animals`, and paste the backend-specific URL.
