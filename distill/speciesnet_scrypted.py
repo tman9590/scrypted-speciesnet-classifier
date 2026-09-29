@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import subprocess
 from collections import Counter
 from pathlib import Path
 from typing import Iterable
@@ -56,9 +57,10 @@ def scrypted_config(labels: list[str], files: list[str]) -> dict:
     }
 
 
-def write_config(directory: Path, labels: list[str], files: list[str]) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "config.json").write_text(
+def write_config(path: Path, labels: list[str], files: list[str]) -> None:
+    """Write the single, repository-level config consumed by every backend."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
         json.dumps(scrypted_config(labels, files), indent=2, ensure_ascii=False) + "\n"
     )
 
@@ -106,7 +108,7 @@ def export_onnx(model, example, destination: Path) -> None:
     )
 
 
-def export_openvino(onnx_path: Path, directory: Path, labels: list[str], compress: bool) -> None:
+def export_openvino(onnx_path: Path, directory: Path, compress: bool) -> list[Path]:
     import openvino as ov
 
     directory.mkdir(parents=True, exist_ok=True)
@@ -117,10 +119,10 @@ def export_openvino(onnx_path: Path, directory: Path, labels: list[str], compres
 
         model = nncf.compress_weights(model, mode=nncf.CompressWeightsMode.INT8_ASYM)
     ov.save_model(model, xml, compress_to_fp16=not compress)
-    write_config(directory, labels, [xml.name, xml.with_suffix(".bin").name])
+    return [xml, xml.with_suffix(".bin")]
 
 
-def export_coreml(model, example, directory: Path, labels: list[str], compress: bool) -> None:
+def export_coreml(model, example, directory: Path, compress: bool) -> list[Path]:
     import coremltools as ct
     import torch
 
@@ -145,8 +147,47 @@ def export_coreml(model, example, directory: Path, labels: list[str], compress: 
             ),
         )
     converted.save(str(package))
-    files = [str(path.relative_to(directory)) for path in sorted(package.rglob("*")) if path.is_file()]
-    write_config(directory, labels, files)
+    return [path for path in sorted(package.rglob("*")) if path.is_file()]
+
+
+def export_ncnn(onnx_path: Path, directory: Path) -> list[Path]:
+    """Convert ONNX with pnnx using Scrypted's in0/out0 convention."""
+    directory.mkdir(parents=True, exist_ok=True)
+    command = shutil.which("pnnx")
+    if not command:
+        candidate = Path(__import__("sys").executable).with_name("pnnx.exe")
+        command = str(candidate) if candidate.is_file() else None
+    if not command:
+        raise ValueError("pnnx executable was not found")
+    subprocess.run(
+        [command, str(onnx_path), f"inputshape=[1,3,{IMAGE_SIZE},{IMAGE_SIZE}]"],
+        check=True,
+    )
+    generated_stem = onnx_path.stem.replace("-", "_")
+    source_param = onnx_path.with_name(f"{generated_stem}.ncnn.param")
+    source_binary = onnx_path.with_name(f"{generated_stem}.ncnn.bin")
+    if not source_param.is_file() or not source_binary.is_file():
+        raise ValueError("pnnx did not produce the expected NCNN artifacts")
+    param = directory / f"{MODEL_BASENAME}.ncnn.param"
+    binary = directory / f"{MODEL_BASENAME}.ncnn.bin"
+    shutil.copy2(source_param, param)
+    shutil.copy2(source_binary, binary)
+    return [binary, param]
+
+
+def configured_artifacts(models: Path) -> list[Path]:
+    """Return artifacts in loader-safe order for the shared Scrypted config."""
+    expected = [
+        models / "ncnn" / f"{MODEL_BASENAME}.ncnn.bin",
+        models / "ncnn" / f"{MODEL_BASENAME}.ncnn.param",
+        models / "onnx" / f"{MODEL_BASENAME}.onnx",
+        models / "openvino" / f"{MODEL_BASENAME}.xml",
+        models / "openvino" / f"{MODEL_BASENAME}.bin",
+        models / "coreml" / f"{MODEL_BASENAME}.mlpackage" / "Data" / "com.apple.CoreML" / "model.mlmodel",
+        models / "coreml" / f"{MODEL_BASENAME}.mlpackage" / "Data" / "com.apple.CoreML" / "weights" / "weight.bin",
+        models / "coreml" / f"{MODEL_BASENAME}.mlpackage" / "Manifest.json",
+    ]
+    return [path for path in expected if path.is_file()]
 
 
 def main() -> None:
@@ -155,7 +196,8 @@ def main() -> None:
     parser.add_argument("--model-dir", type=Path, help="Use an already downloaded SpeciesNet model directory")
     parser.add_argument("--models", type=Path, default=ROOT / "models")
     parser.add_argument("--work", type=Path, default=ROOT / "work" / "speciesnet-export")
-    parser.add_argument("--backends", nargs="+", choices=["onnx", "openvino", "coreml"], default=["openvino", "coreml"])
+    parser.add_argument("--backends", nargs="+", choices=["onnx", "openvino", "coreml", "ncnn"], default=["onnx", "openvino", "coreml", "ncnn"])
+    parser.add_argument("--config", type=Path, default=ROOT / "config.json")
     parser.add_argument(
         "--no-compression",
         action="store_true",
@@ -178,17 +220,32 @@ def main() -> None:
 
     args.work.mkdir(parents=True, exist_ok=True)
     onnx_path = args.work / f"{MODEL_BASENAME}.onnx"
-    if any(backend in args.backends for backend in ("onnx", "openvino")):
+    if any(backend in args.backends for backend in ("onnx", "openvino", "ncnn")):
         export_onnx(model, example, onnx_path)
     if "onnx" in args.backends:
         destination = args.models / "onnx" / onnx_path.name
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(onnx_path, destination)
-        write_config(destination.parent, labels, [destination.name])
     if "openvino" in args.backends:
-        export_openvino(onnx_path, args.models / "openvino", labels, not args.no_compression)
+        export_openvino(onnx_path, args.models / "openvino", not args.no_compression)
     if "coreml" in args.backends:
-        export_coreml(model, example, args.models / "coreml", labels, not args.no_compression)
+        export_coreml(model, example, args.models / "coreml", not args.no_compression)
+    if "ncnn" in args.backends:
+        export_ncnn(onnx_path, args.models / "ncnn")
+
+    artifacts = configured_artifacts(args.models)
+    exported_backends = {
+        "coreml": any("/coreml/" in path.as_posix() for path in artifacts),
+        "ncnn": any("/ncnn/" in path.as_posix() for path in artifacts),
+        "onnx": any("/onnx/" in path.as_posix() for path in artifacts),
+        "openvino": any("/openvino/" in path.as_posix() for path in artifacts),
+    }
+    missing = [backend for backend, present in exported_backends.items() if not present]
+    if missing:
+        raise ValueError(f"Cannot write shared config; missing backend artifacts: {', '.join(missing)}")
+    # Config entries are URL paths, so keep forward slashes even when exporting on Windows.
+    files = [path.relative_to(args.config.parent).as_posix() for path in artifacts]
+    write_config(args.config, labels, files)
 
     manifest = {
         "source": str(source),
@@ -196,7 +253,8 @@ def main() -> None:
         "handle": args.handle,
         "class_count": len(labels),
         "input_shape": list(example.shape),
-        "backends": args.backends,
+        "backends": sorted(backend for backend, present in exported_backends.items() if present),
+        "config": str(args.config),
         "weight_compression": "int8" if not args.no_compression else "fp16",
     }
     (args.work / "build-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

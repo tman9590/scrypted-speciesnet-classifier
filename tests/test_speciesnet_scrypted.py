@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -37,6 +38,13 @@ class SpeciesNetScryptedTests(unittest.TestCase):
         self.assertEqual(config["mean"], [0.0, 0.0, 0.0])
         self.assertEqual(config["std"], [1.0, 1.0, 1.0])
         self.assertEqual(config["labels"], {"0": "cat", "1": "dog"})
+
+    def test_artifact_order_keeps_ncnn_binary_ahead_of_openvino_binary(self):
+        names = json.loads((ROOT / "config.json").read_text())["files"]
+        self.assertLess(
+            names.index(next(name for name in names if name.endswith(".ncnn.bin"))),
+            names.index(next(name for name in names if name.endswith("/openvino/speciesnet-v4.0.3a.bin"))),
+        )
 
     def test_bad_taxonomy_row_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "expected 7"):

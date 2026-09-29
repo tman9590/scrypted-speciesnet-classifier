@@ -5,8 +5,9 @@ for Scrypted's existing custom-classifier contract (`model: resnet`). It is a
 second-stage classifier: Scrypted first detects an `animal`, crops that box, and
 then this model assigns wildlife metadata used by NVR search.
 
-The deployable model is ready for OpenVINO on Intel/AMD hosts and CoreML on
-Apple Silicon hosts.
+The deployable model is packaged for all four Scrypted plugins that implement
+the custom-classifier loader: CoreML, OpenVINO, ONNX, and NCNN. TensorFlow Lite
+does not currently expose that loader.
 
 SpeciesNet uses an EfficientNet V2 M classifier at 480 × 480 and exposes 2,498
 taxonomy labels, including 2,066 species plus higher taxonomic groups, human,
@@ -31,7 +32,7 @@ python3.11 -m venv .venv
 .venv/bin/pip install -r requirements-build.txt
 
 .venv/bin/python distill/speciesnet_scrypted.py \
-  --backends openvino coreml \
+  --backends coreml openvino onnx ncnn \
   --no-compression
 ```
 
@@ -54,23 +55,26 @@ python3 -m unittest discover -s tests -v
 python3 -m compileall -q distill tests
 ```
 
-Passing export parity proves that CoreML and OpenVINO preserve the source
+Passing export parity proves that the packaged backends preserve the source
 model's behavior. It does not substitute for a labeled validation set from the
 installed cameras.
 
 ## Add to Scrypted
 
-The two weight files use Git LFS. Use the GitHub **media** configuration URL so
-Scrypted receives the binary object rather than an LFS pointer:
+The repository root contains the one canonical [`config.json`](config.json).
+Use the same raw URL in CoreML, OpenVINO, ONNX, or NCNN:
 
-- CoreML: `https://media.githubusercontent.com/media/tman9590/scrypted-speciesnet-classifier/ec8e1600448afcbf9c00330e69842868f603d256/models/coreml/config.json`
-- OpenVINO: `https://media.githubusercontent.com/media/tman9590/scrypted-speciesnet-classifier/ec8e1600448afcbf9c00330e69842868f603d256/models/openvino/config.json`
+`https://raw.githubusercontent.com/tman9590/scrypted-speciesnet-classifier/main/config.json`
 
 In the matching Scrypted detector plugin, choose **Create Device** under
-**Models**, name it `SpeciesNet Animals`, and paste the backend-specific URL.
+**Models**, name it `SpeciesNet Animals`, and paste that URL.
 Select the resulting classifier as the camera's animal classifier. Start with a
 classification threshold of `0.50`; review real day/night events before using
 species labels for alerts.
+
+Paste the full `config.json` URL rather than the repository URL. Scrypted's
+repository shortcut still assumes separate `models/<backend>/config.json`
+files, while this package intentionally keeps one canonical root config.
 
 ## Optional site-specific fine-tuning
 

@@ -1,2 +1,4 @@
 models/openvino/** filter=lfs diff=lfs merge=lfs -text
 models/coreml/** filter=lfs diff=lfs merge=lfs -text
+models/onnx/** filter=lfs diff=lfs merge=lfs -text
+models/ncnn/** filter=lfs diff=lfs merge=lfs -text

@@ -32,8 +32,8 @@ def probabilities(logits: np.ndarray) -> np.ndarray:
     return result / result.sum(axis=1, keepdims=True)
 
 
-def validate_config(root: Path, labels: list[str]) -> tuple[dict, list[Path]]:
-    config = json.loads((root / "config.json").read_text())
+def validate_config(config_path: Path, labels: list[str]) -> tuple[dict, list[Path]]:
+    config = json.loads(config_path.read_text())
     expected = {
         "model": "resnet",
         "input_shape": [1, 3, IMAGE_SIZE, IMAGE_SIZE],
@@ -42,10 +42,10 @@ def validate_config(root: Path, labels: list[str]) -> tuple[dict, list[Path]]:
     }
     for key, value in expected.items():
         if config.get(key) != value:
-            raise ValueError(f"{root.name}: invalid {key}: {config.get(key)!r}")
+            raise ValueError(f"{config_path.name}: invalid {key}: {config.get(key)!r}")
     if list(config["labels"].values()) != labels:
-        raise ValueError(f"{root.name}: labels differ from the source checkpoint")
-    files = [root / name for name in config["files"]]
+        raise ValueError(f"{config_path.name}: labels differ from the source checkpoint")
+    files = [config_path.parent / name for name in config["files"]]
     for path in files:
         if not path.is_file() or not path.stat().st_size:
             raise ValueError(f"Missing or empty configured artifact: {path}")
@@ -57,14 +57,13 @@ def main() -> None:
     parser.add_argument("--handle", default=DEFAULT_HANDLE)
     parser.add_argument("--model-dir", type=Path)
     parser.add_argument("--models", type=Path, default=ROOT / "models")
-    parser.add_argument("--backends", nargs="+", choices=["openvino", "coreml"], default=["openvino", "coreml"])
+    parser.add_argument("--config", type=Path, default=ROOT / "config.json")
+    parser.add_argument("--backends", nargs="+", choices=["coreml", "ncnn", "onnx", "openvino"], default=["coreml", "ncnn", "onnx", "openvino"])
     parser.add_argument("--images", type=Path, required=True)
     parser.add_argument("--samples", type=int, default=10)
     parser.add_argument("--report", type=Path, default=ROOT / "work" / "speciesnet-validation.json")
     args = parser.parse_args()
 
-    import coremltools as ct
-    import openvino as ov
     import torch
 
     _, info, labels, checkpoint = load_checkpoint(args.handle, args.model_dir)
@@ -72,27 +71,57 @@ def main() -> None:
     runners = {}
     reports = {}
 
+    _, configured_files = validate_config(args.config, labels)
     for backend in args.backends:
         root = args.models / backend
-        _, files = validate_config(root, labels)
+        files = [path for path in configured_files if root in path.parents]
+        if not files:
+            raise ValueError(f"No {backend} artifacts are listed in {args.config}")
         reports[backend] = {
             "artifacts": {
-                str(path.relative_to(root)): {"bytes": path.stat().st_size, "sha256": sha256(path)}
+                str(path.relative_to(args.config.parent)): {"bytes": path.stat().st_size, "sha256": sha256(path)}
                 for path in files
             },
             "samples": [],
         }
         if backend == "openvino":
+            import openvino as ov
+
             xml = next(path for path in files if path.suffix == ".xml")
             compiled = ov.Core().compile_model(str(xml), "CPU")
             runners[backend] = lambda tensor, model=compiled: model(tensor)[0]
-        else:
+        elif backend == "coreml":
+            import coremltools as ct
+
             manifest = next(path for path in files if path.name == "Manifest.json")
             model = ct.models.MLModel(str(manifest.parent))
             input_name = model.get_spec().description.input[0].name
             runners[backend] = lambda tensor, model=model, name=input_name: next(
                 iter(model.predict({name: tensor}).values())
             )
+        elif backend == "onnx":
+            import onnxruntime as ort
+
+            model_path = next(path for path in files if path.suffix == ".onnx")
+            model = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+            input_name = model.get_inputs()[0].name
+            runners[backend] = lambda tensor, model=model, name=input_name: model.run(None, {name: tensor})[0]
+        elif backend == "ncnn":
+            import ncnn
+
+            param = next(path for path in files if path.name.endswith(".ncnn.param"))
+            binary = next(path for path in files if path.name.endswith(".ncnn.bin"))
+            model = ncnn.Net()
+            model.load_param(str(param))
+            model.load_model(str(binary))
+
+            def run_ncnn(tensor, model=model):
+                extractor = model.create_extractor()
+                extractor.input("in0", ncnn.Mat(tensor.squeeze(0)))
+                _, output = extractor.extract("out0")
+                return np.asarray(output)[None]
+
+            runners[backend] = run_ncnn
 
     paths = sorted(
         path

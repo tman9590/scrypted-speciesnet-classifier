@@ -39,26 +39,33 @@ class DistillationTests(unittest.TestCase):
             }.issubset(scientific_names)
         )
 
-    def test_scrypted_backend_configs_use_speciesnet_classifier(self):
-        expected_files = {
-            "coreml": [
-                "speciesnet-v4.0.3a.mlpackage/Data/com.apple.CoreML/model.mlmodel",
-                "speciesnet-v4.0.3a.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
-                "speciesnet-v4.0.3a.mlpackage/Manifest.json",
+    def test_one_root_config_supports_every_scrypted_custom_backend(self):
+        config = json.loads((ROOT / "config.json").read_text())
+        self.assertEqual(config["input_shape"], [1, 3, 480, 480])
+        self.assertEqual(config["model"], "resnet")
+        self.assertEqual(config["mean"], [0.0, 0.0, 0.0])
+        self.assertEqual(config["std"], [1.0, 1.0, 1.0])
+        self.assertEqual(
+            config["files"],
+            [
+                "models/ncnn/speciesnet-v4.0.3a.ncnn.bin",
+                "models/ncnn/speciesnet-v4.0.3a.ncnn.param",
+                "models/onnx/speciesnet-v4.0.3a.onnx",
+                "models/openvino/speciesnet-v4.0.3a.xml",
+                "models/openvino/speciesnet-v4.0.3a.bin",
+                "models/coreml/speciesnet-v4.0.3a.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+                "models/coreml/speciesnet-v4.0.3a.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+                "models/coreml/speciesnet-v4.0.3a.mlpackage/Manifest.json",
             ],
-            "openvino": ["speciesnet-v4.0.3a.xml", "speciesnet-v4.0.3a.bin"],
-        }
-        for backend, files in expected_files.items():
-            config = json.loads((ROOT / "models" / backend / "config.json").read_text())
-            self.assertEqual(config["input_shape"], [1, 3, 480, 480])
-            self.assertEqual(config["model"], "resnet")
-            self.assertEqual(config["mean"], [0.0, 0.0, 0.0])
-            self.assertEqual(config["std"], [1.0, 1.0, 1.0])
-            self.assertEqual(config["files"], files)
-            self.assertEqual(len(config["labels"]), 2498)
-            self.assertIn("eastern gray squirrel", config["labels"].values())
-            self.assertIn("white-tailed deer", config["labels"].values())
-            self.assertIn("virginia opossum", config["labels"].values())
+        )
+        self.assertEqual(len(config["labels"]), 2498)
+        self.assertIn("eastern gray squirrel", config["labels"].values())
+        self.assertIn("white-tailed deer", config["labels"].values())
+        self.assertIn("virginia opossum", config["labels"].values())
+        self.assertFalse(any("\\" in path for path in config["files"]))
+
+        self.assertFalse((ROOT / "models" / "coreml" / "config.json").exists())
+        self.assertFalse((ROOT / "models" / "openvino" / "config.json").exists())
 
     def test_temporal_smoothing_and_unknown_threshold(self):
         smoother = TemporalSmoother(alpha=0.5, match_iou=0.3, ttl_frames=10, unknown_threshold=0.7)
