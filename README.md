@@ -64,7 +64,7 @@ installed cameras.
 The repository root contains the one canonical [`config.json`](config.json).
 Use the same raw URL in CoreML, OpenVINO, ONNX, or NCNN:
 
-`https://media.githubusercontent.com/media/tman9590/scrypted-speciesnet-classifier/main/config.json`
+`https://github.com/tman9590/scrypted-speciesnet-classifier/raw/refs/heads/main/config.json`
 
 In the matching Scrypted detector plugin, choose **Create Device** under
 **Models**, name it `SpeciesNet Animals`, and paste that URL.
