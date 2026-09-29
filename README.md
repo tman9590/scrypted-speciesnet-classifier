@@ -76,6 +76,40 @@ Paste the full `config.json` URL rather than the repository URL. Scrypted's
 repository shortcut still assumes separate `models/<backend>/config.json`
 files, while this package intentionally keeps one canonical root config.
 
+### First install and watchdog restarts
+
+The canonical manifest describes every supported backend, so a detector plugin
+may fetch all referenced artifacts during its first install (about 562 MB for
+this release). On a clustered Scrypted installation, that initial download and
+model preparation can take long enough for the plugin ping watchdog to restart
+the CoreML or OpenVINO worker. Typical log messages include:
+
+```text
+plugin is not responding to ping. restarting.
+plugin ping failed. restarting.
+plugin @scrypted/openvino unexpectedly exited, restarting in 60000ms
+```
+
+Scrypted may also record a related NVR `unhandledRejection` with `plugin killed`.
+A single restart during the initial import does not necessarily mean creation
+failed: the classifier device may already be present and the downloaded files
+may be cached for the restarted worker.
+
+Do not press **Add Model** again until checking for an existing classifier, or
+you may create duplicates. Confirm recovery by verifying that:
+
+- the new classifier appears under the detector plugin's **Models** list;
+- the CoreML or OpenVINO detector fork is present on its intended cluster
+  worker;
+- opening the classifier settings returns the label list; and
+- no additional ping failures or unexpected exits occur after the restart.
+
+If the detector remains unavailable or enters a restart loop, wait for any
+downloads to finish, confirm adequate free disk space and GitHub connectivity,
+then restart that detector plugin once. Persistent `no worker found`, `image
+closed`, classifier-load failures, or repeated unexpected exits should be
+treated as real errors and investigated in the detector and Scrypted NVR logs.
+
 ## Optional site-specific fine-tuning
 
 The RTX 5070 Ti is useful after camera crops have been reviewed and labeled.
