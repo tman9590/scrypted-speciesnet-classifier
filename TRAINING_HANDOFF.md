@@ -1,7 +1,7 @@
 # GPU training handoff
 
-The desktop RTX 5070 Ti should run teacher inference and student training with
-PyTorch 2.8 / CUDA 12.8. Keep this Mac available for final CoreML runtime checks.
+A CUDA-capable training host should run teacher inference and student training
+with PyTorch 2.8 / CUDA 12.8. Keep a Mac available for final CoreML runtime checks.
 Use a fresh Python 3.11 environment on the destination; do not copy the Mac venv.
 `setup-cuda.sh` prepares Linux/WSL and verifies an actual CUDA forward/backward pass.
 

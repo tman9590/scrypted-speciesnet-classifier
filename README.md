@@ -14,14 +14,6 @@ taxonomy labels, including 2,066 species plus higher taxonomic groups, human,
 vehicle, and blank. It was trained for camera-trap imagery, unlike the previous
 experimental model in this repository.
 
-## Why the model changed
-
-The original experiment attempted to train a 530-class YOLO student from 8,175
-public photos and provisional Scrypted pseudo-labels. That is too little data
-for reliable fine-grained classification, and the resulting unvalidated weights
-produced implausible labels. The old teacher/student scripts remain available
-for research, but they are no longer the checked-in Scrypted model.
-
 ## Build
 
 Use Python 3.11. The official checkpoint is downloaded from Kaggle and cached
@@ -112,7 +104,7 @@ treated as real errors and investigated in the detector and Scrypted NVR logs.
 
 ## Optional site-specific fine-tuning
 
-The RTX 5070 Ti is useful after camera crops have been reviewed and labeled.
+A CUDA-capable GPU is useful after camera crops have been reviewed and labeled.
 Fine-tuning should adapt the classifier to the site's common animals and night
 vision, while retaining a broad background/unknown set. Do not retrain the old
 529-class detector on its current sparse pseudo-labels.
